@@ -1,18 +1,20 @@
-from bs4 import BeautifulSoup
-import urllib.parse
-import threading
-from markdownify import markdownify as md
-import requests
 import logging
-import queue
-import time
 import os
+import queue
 import re
+import threading
+import time
+import urllib.parse
 from typing import (
     List,
     Optional,
     Union
 )
+
+import requests
+from bs4 import BeautifulSoup
+from markdownify import markdownify as md
+
 __version__ = '0.1'
 __author__ = 'Paul Pierre (github.com/paulpierre)'
 __copyright__ = "(C) 2023 Paul Pierre. MIT License."
@@ -64,18 +66,18 @@ def normalize_url(url: str) -> str:
 # HTML parsing logic
 # ------------------
 def crawl(
-    url: str,
-    base_url: str,
-    already_crawled: set,
-    file_path: str,
-    target_links: Union[str, List[str]] = DEFAULT_TARGET_LINKS,
-    target_content: Union[str, List[str]] = None,
-    valid_paths: Union[str, List[str]] = None,
-    is_domain_match: Optional[bool] = DEFAULT_DOMAIN_MATCH,
-    is_base_path_match: Optional[bool] = DEFAULT_BASE_PATH_MATCH,
-    is_links: Optional[bool] = False
+        url: str,
+        base_url: str,
+        already_crawled: set,
+        file_path: str,
+        target_links: Union[str, List[str]] = DEFAULT_TARGET_LINKS,
+        target_content: Union[str, List[str]] = None,
+        valid_paths: Union[str, List[str]] = None,
+        is_domain_match: Optional[bool] = DEFAULT_DOMAIN_MATCH,
+        is_base_path_match: Optional[bool] = DEFAULT_BASE_PATH_MATCH,
+        is_links: Optional[bool] = False,
+        results: queue.Queue = None,
 ) -> List[str]:
-
     if url in already_crawled:
         return []
     try:
@@ -137,8 +139,9 @@ def crawl(
             # ------------------------------
             # Write markdown content to file
             # ------------------------------
-            with open(file_path, 'w') as f:
-                f.write(output)
+            # with open(file_path, 'w', encoding='utf-8') as f:
+            #     f.write(output)
+            results.put(output)
         else:
             logger.error(f'❌ Empty content for {file_path}. Please check your targets skipping.')
 
@@ -148,7 +151,7 @@ def crawl(
         target_links,
         valid_paths=valid_paths,
         is_domain_match=is_domain_match,
-        is_base_path_match=is_base_path_match    
+        is_base_path_match=is_base_path_match
     )
 
     logger.debug(f'Found {len(child_urls) if child_urls else 0} child URLs')
@@ -156,10 +159,9 @@ def crawl(
 
 
 def get_target_content(
-    soup: BeautifulSoup,
-    target_content: Union[List[str], None] = None
+        soup: BeautifulSoup,
+        target_content: Union[List[str], None] = None
 ) -> str:
-
     content = ''
 
     # -------------------------------------
@@ -187,14 +189,13 @@ def get_target_content(
 
 
 def get_target_links(
-    soup: BeautifulSoup,
-    base_url: str,
-    target_links: List[str] = DEFAULT_TARGET_LINKS,
-    valid_paths: Union[List[str], None] = None,
-    is_domain_match: Optional[bool] = DEFAULT_DOMAIN_MATCH,
-    is_base_path_match: Optional[bool] = DEFAULT_BASE_PATH_MATCH
+        soup: BeautifulSoup,
+        base_url: str,
+        target_links: List[str] = DEFAULT_TARGET_LINKS,
+        valid_paths: Union[List[str], None] = None,
+        is_domain_match: Optional[bool] = DEFAULT_DOMAIN_MATCH,
+        is_base_path_match: Optional[bool] = DEFAULT_BASE_PATH_MATCH
 ) -> List[str]:
-
     child_urls = []
 
     # Get all urls from target_links
@@ -231,19 +232,19 @@ def get_target_links(
 # Worker thread logic
 # ------------------
 def worker(
-    q: object,
-    base_url: str,
-    max_depth: int,
-    already_crawled: set,
-    base_dir: str,
-    target_links: Union[List[str], None] = DEFAULT_TARGET_LINKS,
-    target_content: Union[List[str], None] = None,
-    valid_paths: Union[List[str], None] = None,
-    is_domain_match: bool = None,
-    is_base_path_match: bool = None,
-    is_links: Optional[bool] = False
+        q: object,
+        base_url: str,
+        max_depth: int,
+        already_crawled: set,
+        base_dir: str,
+        target_links: Union[List[str], None] = DEFAULT_TARGET_LINKS,
+        target_content: Union[List[str], None] = None,
+        valid_paths: Union[List[str], None] = None,
+        is_domain_match: bool = None,
+        is_base_path_match: bool = None,
+        is_links: Optional[bool] = False,
+        results: queue.Queue = None
 ) -> None:
-
     while not q.empty():
         depth, url = q.get()
         if depth > max_depth:
@@ -262,7 +263,8 @@ def worker(
             valid_paths,
             is_domain_match,
             is_base_path_match,
-            is_links
+            is_links,
+            results
         )
         child_urls = [normalize_url(u) for u in child_urls]
         for child_url in child_urls:
@@ -285,7 +287,7 @@ def md_crawl(
         is_base_path_match: Optional[bool] = None,
         is_debug: Optional[bool] = False,
         is_links: Optional[bool] = False
-) -> None:
+) -> str:
     if is_domain_match is False and is_base_path_match is True:
         raise ValueError('❌ Domain match must be True if base match is set to True')
 
@@ -325,6 +327,9 @@ def md_crawl(
     # Create a queue of URLs to crawl
     q = queue.Queue()
 
+    # Create a queue to store the results
+    results = queue.Queue()
+
     # Add the base URL to the queue
     q.put((0, base_url))
 
@@ -345,15 +350,23 @@ def md_crawl(
                 valid_paths,
                 is_domain_match,
                 is_base_path_match,
-                is_links
+                is_links,
+                results
             )
         )
         threads.append(t)
         t.start()
-        logger.debug(f'Started thread {i+1} of {num_threads}')
+        logger.debug(f'Started thread {i + 1} of {num_threads}')
 
     # Wait for all threads to finish
     for t in threads:
         t.join()
 
     logger.info('🏁 All threads have finished')
+
+    results_strings = []
+    while not results.empty():
+        result = results.get()
+        results_strings.append(result)
+    print(len(results_strings))
+    return ''.join(results_strings)
