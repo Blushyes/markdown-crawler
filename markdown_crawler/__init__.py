@@ -111,9 +111,7 @@ def crawl(
     # --------------------------------------------
     # Write the markdown file if it does not exist
     # --------------------------------------------
-    if not os.path.exists(file_path):
-
-        file_name = file_path.split("/")[-1]
+    if file_path is None or not os.path.exists(file_path):
 
         # ------------------
         # Get target content
@@ -134,13 +132,16 @@ def crawl(
                 strip=strip_elements
             )
 
-            logger.info(f'Created 📝 {file_name}')
+            if file_path is not None:
+                file_name = file_path.split("/")[-1]
+                logger.info(f'Created 📝 {file_name}')
 
-            # ------------------------------
-            # Write markdown content to file
-            # ------------------------------
-            # with open(file_path, 'w', encoding='utf-8') as f:
-            #     f.write(output)
+                # ------------------------------
+                # Write markdown content to file
+                # ------------------------------
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(output)
+
             results.put(output)
         else:
             logger.error(f'❌ Empty content for {file_path}. Please check your targets skipping.')
@@ -249,9 +250,12 @@ def worker(
         depth, url = q.get()
         if depth > max_depth:
             continue
-        file_name = '-'.join(re.findall(r'\w+', urllib.parse.urlparse(url).path))
-        file_name = 'index' if not file_name else file_name
-        file_path = f'{base_dir.rstrip("/") + "/"}{file_name}.md'
+
+        file_path = None
+        if base_dir:
+            file_name = '-'.join(re.findall(r'\w+', urllib.parse.urlparse(url).path))
+            file_name = 'index' if not file_name else file_name
+            file_path = f'{base_dir.rstrip("/") + "/"}{file_name}.md'
 
         child_urls = crawl(
             url,
@@ -279,7 +283,7 @@ def md_crawl(
         base_url: str,
         max_depth: Optional[int] = DEFAULT_MAX_DEPTH,
         num_threads: Optional[int] = DEFAULT_NUM_THREADS,
-        base_dir: Optional[str] = DEFAULT_BASE_DIR,
+        base_dir: Optional[str] = None,
         target_links: Union[str, List[str]] = DEFAULT_TARGET_LINKS,
         target_content: Union[str, List[str]] = None,
         valid_paths: Union[str, List[str]] = None,
@@ -319,7 +323,7 @@ def md_crawl(
         raise ValueError('❌ Invalid base URL')
 
     # Create base_dir if it doesn't exist
-    if not os.path.exists(base_dir):
+    if base_dir and not os.path.exists(base_dir):
         os.makedirs(base_dir)
 
     already_crawled = set()
